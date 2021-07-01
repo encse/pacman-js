@@ -1120,13 +1120,12 @@ class GameCoordinator {
         this.fruitDisplay = document.getElementById('fruit-display');
         this.mainMenu = document.getElementById('main-menu-container');
         this.gameStartButton = document.getElementById('game-start');
-        this.pauseButton = document.getElementById('pause-button');
+        this.closeButton = document.getElementById('close-button');
         this.soundButton = document.getElementById('sound-button');
         this.leftCover = document.getElementById('left-cover');
         this.rightCover = document.getElementById('right-cover');
         this.pausedText = document.getElementById('paused-text');
         this.bottomRow = document.getElementById('bottom-row');
-        this.movementButtons = document.getElementById('movement-buttons');
 
         this.mazeArray = [
             ['XXXXXXXXXXXXXXXXXXXXXXXXXXXX'],
@@ -1164,7 +1163,7 @@ class GameCoordinator {
 
         this.maxFps = 120;
         this.tileSize = 8;
-        this.scale = this.determineScale(1);
+        this.scale = this.determineScale();
         this.scaledTileSize = this.tileSize * this.scale;
         this.firstGame = true;
 
@@ -1201,7 +1200,8 @@ class GameCoordinator {
             'click',
             this.startButtonClick.bind(this),
         );
-        this.pauseButton.addEventListener('click', this.handlePauseKey.bind(this));
+
+        this.closeButton.addEventListener('click', this.handleCloseKey.bind(this));
         this.soundButton.addEventListener(
             'click',
             this.soundButtonClick.bind(this),
@@ -1217,11 +1217,7 @@ class GameCoordinator {
         head.appendChild(link);
     }
 
-    /**
-     * Recursive method which determines the largest possible scale the game's graphics can use
-     * @param {Number} scale
-     */
-    determineScale(scale) {
+    determineScale() {
         const availableScreenHeight = Math.min(
             document.documentElement.clientHeight,
             window.innerHeight || 0,
@@ -1230,7 +1226,6 @@ class GameCoordinator {
             document.documentElement.clientWidth,
             window.innerWidth || 0,
         );
-        const scaledTileSize = this.tileSize * scale;
 
         // The original Pac-Man game leaves 5 tiles of height (3 above, 2 below) surrounding the
         // maze for the UI. See app\style\graphics\spriteSheets\references\mazeGridSystemReference.png
@@ -1238,14 +1233,30 @@ class GameCoordinator {
         const mazeTileHeight = this.mazeArray.length + 5;
         const mazeTileWidth = this.mazeArray[0][0].split('').length;
 
-        if (
-            scaledTileSize * mazeTileHeight < availableScreenHeight &&
-            scaledTileSize * mazeTileWidth < availableScreenWidth
+        let scale = 1;
+        while (
+            this.tileSize * scale * mazeTileHeight < availableScreenHeight &&
+            this.tileSize * scale * mazeTileWidth < availableScreenWidth
         ) {
-            return this.determineScale(scale + 1);
+            scale *= 2;
         }
 
-        return scale - 1;
+        let scaleH = scale;
+        let scaleL = scale / 2;
+
+        while (scaleH - scaleL > 0.1) {
+            let scale = (scaleL + scaleH) / 2;
+
+            if (this.tileSize * scale * mazeTileHeight < availableScreenHeight &&
+                this.tileSize * scale * mazeTileWidth < availableScreenWidth
+            ) {
+                scaleL = scale;
+            } else {
+                scaleH = scale;
+            }
+        }
+
+        return scaleL;
     }
 
     /**
@@ -1510,7 +1521,6 @@ class GameCoordinator {
         this.remainingDots = 0;
         this.allowKeyPresses = true;
         this.allowPacmanMovement = false;
-        this.allowPause = false;
         this.cutscene = true;
         this.highScore = localStorage.getItem('highScore');
 
@@ -1708,7 +1718,6 @@ class GameCoordinator {
         this.updateExtraLivesDisplay();
 
         new Timer(() => {
-            this.allowPause = true;
             this.cutscene = false;
             this.soundManager.setCutscene(this.cutscene);
             this.soundManager.setAmbience(this.determineSiren(this.remainingDots));
@@ -1817,16 +1826,6 @@ class GameCoordinator {
         window.addEventListener('addTimer', this.addTimer.bind(this));
         window.addEventListener('removeTimer', this.removeTimer.bind(this));
         window.addEventListener('releaseGhost', this.releaseGhost.bind(this));
-
-        const directions = ['up', 'down', 'left', 'right'];
-
-        directions.forEach((direction) => {
-            document
-                .getElementById(`button-${direction}`)
-                .addEventListener('touchstart', () => {
-                    this.changeDirection(direction);
-                });
-        });
     }
 
     /**
@@ -1846,7 +1845,7 @@ class GameCoordinator {
     handleKeyDown(e) {
         if (e.keyCode === 27) {
             // ESC key
-            this.handlePauseKey();
+            this.handleCloseKey();
         } else if (e.keyCode === 81) {
             // Q
             this.soundButtonClick();
@@ -1859,40 +1858,8 @@ class GameCoordinator {
     /**
      * Handle behavior for the pause key
      */
-    handlePauseKey() {
-        if (this.allowPause) {
-            this.allowPause = false;
-
-            setTimeout(() => {
-                if (!this.cutscene) {
-                    this.allowPause = true;
-                }
-            }, 500);
-
-            this.gameEngine.changePausedState(this.gameEngine.running);
-            this.soundManager.play('pause');
-
-            if (this.gameEngine.started) {
-                this.soundManager.resumeAmbience();
-                this.gameUi.style.filter = 'unset';
-                this.movementButtons.style.filter = 'unset';
-                this.pausedText.style.visibility = 'hidden';
-                this.pauseButton.innerHTML = 'pause';
-                this.activeTimers.forEach((timer) => {
-                    timer.resume();
-                });
-            } else {
-                this.soundManager.stopAmbience();
-                this.soundManager.setAmbience('pause_beat', true);
-                this.gameUi.style.filter = 'blur(5px)';
-                this.movementButtons.style.filter = 'blur(5px)';
-                this.pausedText.style.visibility = 'visible';
-                this.pauseButton.innerHTML = 'play_arrow';
-                this.activeTimers.forEach((timer) => {
-                    timer.pause();
-                });
-            }
-        }
+    handleCloseKey() {
+        window.parent.postMessage('close', document.referrer);
     }
 
     /**
@@ -1938,7 +1905,6 @@ class GameCoordinator {
      * the player has remaining lives.
      */
     deathSequence() {
-        this.allowPause = false;
         this.cutscene = true;
         this.soundManager.setCutscene(this.cutscene);
         this.soundManager.stopAmbience();
@@ -2082,7 +2048,6 @@ class GameCoordinator {
      * Resets the gameboard and prepares the next level
      */
     advanceLevel() {
-        this.allowPause = false;
         this.cutscene = true;
         this.soundManager.setCutscene(this.cutscene);
         this.allowKeyPresses = false;
